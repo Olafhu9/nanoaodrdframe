@@ -23,8 +23,8 @@ using namespace std;
 
 NanoAODAnalyzerrdframe::NanoAODAnalyzerrdframe(TTree *atree, std::string outfilename, std::string jsonfname, std::string globaltag, int nthreads)
 :_rd(*atree),_jsonOK(false), _outfilename(outfilename), _jsonfname(jsonfname), _globaltag(globaltag), _inrootfile(0),_outrootfile(0), _rlm(_rd)
-	, _btagcalib("CSVv2", "data/CSVv2_Moriond17_B_H.csv")
-	, _btagcalib2("DeepCSV", "data/DeepCSV_2016LegacySF_V1.csv")
+	, _btagcalib("CSVv2", "data/CSVv2_94XSF_V2_B_F.csv")
+	, _btagcalib2("DeepCSV", "data/DeepCSV_94XSF_V4_B_F.csv")
 	, _btagcalibreader(BTagEntry::OP_RESHAPING, "central", {"up_jes", "down_jes"})
     , _btagcalibreader2(BTagEntry::OP_RESHAPING, "central", {"up_jes", "down_jes"})
 	, _rnt(&_rlm), currentnode(0), _jetCorrector(0), _jetCorrectionUncertainty(0)
@@ -63,12 +63,14 @@ NanoAODAnalyzerrdframe::NanoAODAnalyzerrdframe(TTree *atree, std::string outfile
 	//
 	// pu weight setup
 	//
-	TFile tfmc("data/pileup_profile_Summer16.root");
+	//TFile tfmc("data/pileup_profile_Summer16.root"); // for 2016 data
+	TFile tfmc("data/PileupMC2017v4.root");
 	_hpumc = dynamic_cast<TH1 *>(tfmc.Get("pu_mc"));
 	_hpumc->SetDirectory(0);
 	tfmc.Close();
 
-	TFile tfdata("data/PileupData_GoldenJSON_Full2016.root");
+	//TFile tfdata("data/PileupData_GoldenJSON_Full2016.root"); // for 2016 data
+	TFile tfdata("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root");
 	_hpudata = dynamic_cast<TH1 *>(tfdata.Get("pileup"));
 	_hpudata_plus = dynamic_cast<TH1 *>(tfdata.Get("pileup_plus"));
 	_hpudata_minus = dynamic_cast<TH1 *>(tfdata.Get("pileup_minus"));
@@ -262,9 +264,29 @@ void NanoAODAnalyzerrdframe::setupJetMETCorrection(string globaltag, string jeta
 		string dbfilenamel2l3 = basedirectory+globaltag+"_"+datamcflag+"_L2L3Residual_"+jetalgo+".txt";
 
 		JetCorrectorParameters *L1JetCorrPar = new JetCorrectorParameters(dbfilenamel1);
+        if (!L1JetCorrPar->isValid())
+        {
+            std::cerr << "L1FastJet correction parameters not read" << std::endl;
+            exit(1);
+        }
 		JetCorrectorParameters *L2JetCorrPar = new JetCorrectorParameters(dbfilenamel2);
+        if (!L2JetCorrPar->isValid())
+        {
+            std::cerr << "L2Relative correction parameters not read" << std::endl;
+            exit(1);
+        }
 		JetCorrectorParameters *L3JetCorrPar = new JetCorrectorParameters(dbfilenamel3);
+        if (!L3JetCorrPar->isValid())
+        {
+            std::cerr << "L3Absolute correction parameters not read" << std::endl;
+            exit(1);
+        }
 		JetCorrectorParameters *L2L3JetCorrPar = new JetCorrectorParameters(dbfilenamel2l3);
+        if (!L2L3JetCorrPar->isValid())
+        {
+            std::cerr << "L2L3Residual correction parameters not read" << std::endl;
+            exit(1);
+        }
 
 		// to apply all the corrections, first collect them into a vector
 		std::vector<JetCorrectorParameters> jetc;
@@ -354,12 +376,48 @@ void NanoAODAnalyzerrdframe::applyJetMETCorrections()
 			return uncertainties;
 		};
 
+	auto metcorrlambdaf = [](float met, float metphi, floats jetptsbefore, floats jetptsafter, floats jetphis)->float
+	{
+		auto metx = met * cos(metphi);
+		auto mety = met * sin(metphi);
+		for (auto i=0; i<jetphis.size(); i++)
+		{
+			if (jetptsafter[i]>15.0)
+			{
+				metx -= (jetptsafter[i] - jetptsbefore[i])*cos(jetphis[i]);
+				mety -= (jetptsafter[i] - jetptsbefore[i])*sin(jetphis[i]);
+			}
+		}
+		return float(sqrt(metx*metx + mety*mety));
+	};
+
+	auto metphicorrlambdaf = [](float met, float metphi, floats jetptsbefore, floats jetptsafter, floats jetphis)->float
+	{
+		auto metx = met * cos(metphi);
+		auto mety = met * sin(metphi);
+		for (auto i=0; i<jetphis.size(); i++)
+		{
+			if (jetptsafter[i]>15.0)
+			{
+				metx -= (jetptsafter[i] - jetptsbefore[i])*cos(jetphis[i]);
+				mety -= (jetptsafter[i] - jetptsbefore[i])*sin(jetphis[i]);
+			}
+		}
+		return float(atan2(mety, metx));
+	};
+
 	if (_jetCorrector != 0)
 	{
 		_rlm = _rlm.Define("Jet_pt_corr", appcorrlambdaf, {"Jet_pt", "Jet_eta", "Jet_area", "Jet_rawFactor", "fixedGridRhoFastjetAll"});
 		_rlm = _rlm.Define("Jet_pt_relerror", jecuncertaintylambdaf, {"Jet_pt", "Jet_eta", "Jet_area", "Jet_rawFactor", "fixedGridRhoFastjetAll"});
-		_rlm = _rlm.Define("Jet_pt_corr_up", "Jet_pt_corr*(1.0 + Jet_pt_relerror)");
-		_rlm = _rlm.Define("Jet_pt_corr_down", "Jet_pt_corr*(1.0 - Jet_pt_relerror)");
+		_rlm = _rlm.Define("Jet_pt_corr_up", "Jet_pt_corr*(1.0f + Jet_pt_relerror)");
+		_rlm = _rlm.Define("Jet_pt_corr_down", "Jet_pt_corr*(1.0f - Jet_pt_relerror)");
+		_rlm = _rlm.Define("MET_pt_corr", metcorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr", "Jet_phi"});
+		_rlm = _rlm.Define("MET_phi_corr", metphicorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr", "Jet_phi"});
+		_rlm = _rlm.Define("MET_pt_corr_up", metcorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_up", "Jet_phi"});
+		_rlm = _rlm.Define("MET_phi_corr_up", metphicorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_up", "Jet_phi"});
+		_rlm = _rlm.Define("MET_pt_corr_down", metcorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_down", "Jet_phi"});
+		_rlm = _rlm.Define("MET_phi_corr_down", metphicorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_down", "Jet_phi"});
 	}
 }
 
