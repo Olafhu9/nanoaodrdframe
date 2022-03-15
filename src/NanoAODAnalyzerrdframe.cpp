@@ -18,16 +18,15 @@
 #include <regex>
 #include "ROOT/RDFHelpers.hxx"
 
+#include "rapidjson/istreamwrapper.h"
+
 
 using namespace std;
 
-NanoAODAnalyzerrdframe::NanoAODAnalyzerrdframe(TTree *atree, std::string outfilename, std::string jsonfname, std::string globaltag, int nthreads)
-:_rd(*atree),_jsonOK(false), _outfilename(outfilename), _jsonfname(jsonfname), _globaltag(globaltag), _inrootfile(0),_outrootfile(0), _rlm(_rd)
-	, _btagcalib("CSVv2", "data/CSVv2_94XSF_V2_B_F.csv")
-	, _btagcalib2("DeepCSV", "data/DeepCSV_94XSF_V4_B_F.csv")
-	, _btagcalibreader(BTagEntry::OP_RESHAPING, "central", {"up_jes", "down_jes"})
-    , _btagcalibreader2(BTagEntry::OP_RESHAPING, "central", {"up_jes", "down_jes"})
-	, _rnt(&_rlm), currentnode(0), _jetCorrector(0), _jetCorrectionUncertainty(0)
+NanoAODAnalyzerrdframe::NanoAODAnalyzerrdframe(TTree *atree, std::string outfilename)
+:_rd(*atree), _jsonOK(false),_outfilename(outfilename)
+	, _outrootfile(0), _rlm(_rd)
+	, _rnt(&_rlm)
 {
 	//
 	// if genWeight column exists, then it is not real data
@@ -51,67 +50,11 @@ NanoAODAnalyzerrdframe::NanoAODAnalyzerrdframe(TTree *atree, std::string outfile
 		}
 	}
 
-	// load the formulae b flavor tagging
-	_btagcalibreader.load(_btagcalib, BTagEntry::FLAV_B, "iterativefit");
-	_btagcalibreader.load(_btagcalib, BTagEntry::FLAV_C, "iterativefit");
-	_btagcalibreader.load(_btagcalib, BTagEntry::FLAV_UDSG, "iterativefit");
 
-	_btagcalibreader2.load(_btagcalib2, BTagEntry::FLAV_B, "iterativefit");
-	_btagcalibreader2.load(_btagcalib2, BTagEntry::FLAV_C, "iterativefit");
-	_btagcalibreader2.load(_btagcalib2, BTagEntry::FLAV_UDSG, "iterativefit");
-
-	//
-	// pu weight setup
-	//
-	//TFile tfmc("data/pileup_profile_Summer16.root"); // for 2016 data
-	TFile tfmc("data/PileupMC2017v4.root");
-	_hpumc = dynamic_cast<TH1 *>(tfmc.Get("pu_mc"));
-	_hpumc->SetDirectory(0);
-	tfmc.Close();
-
-	//TFile tfdata("data/PileupData_GoldenJSON_Full2016.root"); // for 2016 data
-	TFile tfdata("data/pileup_Cert_294927-306462_13TeV_PromptReco_Collisions17_withVar.root");
-	_hpudata = dynamic_cast<TH1 *>(tfdata.Get("pileup"));
-	_hpudata_plus = dynamic_cast<TH1 *>(tfdata.Get("pileup_plus"));
-	_hpudata_minus = dynamic_cast<TH1 *>(tfdata.Get("pileup_minus"));
-
-	_hpudata->SetDirectory(0);
-	_hpudata_plus->SetDirectory(0);
-	_hpudata_minus->SetDirectory(0);
-	tfdata.Close();
-
-	_puweightcalc = new WeightCalculatorFromHistogram(_hpumc, _hpudata);
-	_puweightcalc_plus = new WeightCalculatorFromHistogram(_hpumc, _hpudata_plus);
-	_puweightcalc_minus = new WeightCalculatorFromHistogram(_hpumc, _hpudata_minus);
-
-	setupJetMETCorrection(_globaltag);
-	/*
-	 *  The following doesn't work yet...
-	if (nthreads>1)
-	{
-		ROOT::EnableImplicitMT(nthreads);
-	}
-	*/
 }
 
 NanoAODAnalyzerrdframe::~NanoAODAnalyzerrdframe() {
 	// TODO Auto-generated destructor stub
-	// ugly...
-
-	cout << "writing histograms" << endl;
-
-	for (auto afile:_outrootfilenames)
-	{
-		_outrootfile = new TFile(afile.c_str(), "UPDATE");
-		for (auto &h : _th1dhistos)
-		{
-			if (h.second.GetPtr() != nullptr) h.second->Write();
-		}
-
-		_outrootfile->Write(0, TObject::kOverwrite);
-		_outrootfile->Close();
-		delete _outrootfile;
-	}
 }
 
 bool NanoAODAnalyzerrdframe::isDefined(string v)
@@ -135,13 +78,48 @@ void NanoAODAnalyzerrdframe::setTree(TTree *t, std::string outfilename)
 	this->setupAnalysis();
 }
 
+
+void NanoAODAnalyzerrdframe::setupCorrections(string goodjsonfname, string pufname, string putag, string btvfname, string btvtype, string jercfname, string jerctag, string jercunctag)
+{
+	if (_isData) _jsonOK = readgoodjson(goodjsonfname); // read golden json file
+
+	if (!_isData) {
+		// using correctionlib
+		// btag corrections
+		_correction_btag1 = correction::CorrectionSet::from_file(btvfname);
+		_btvtype = btvtype;
+		assert(_correction_btag1->validate());
+
+		// pile up weights
+		_correction_pu = correction::CorrectionSet::from_file(pufname);
+		assert(_correction_pu->validate());
+		_putag = putag;
+		auto punominal = [this](float x) { return pucorrection(_correction_pu, _putag, "nominal", x); };
+		auto puplus = [this](float x) { return pucorrection(_correction_pu, _putag, "up", x); };
+		auto puminus = [this](float x) { return pucorrection(_correction_pu, _putag, "down", x); };
+
+		if (!isDefined("puWeight")) _rlm = _rlm.Define("puWeight", punominal, {"Pileup_nTrueInt"});
+		if (!isDefined("puWeight_plus")) _rlm = _rlm.Define("puWeight_plus", puplus, {"Pileup_nTrueInt"});
+		if (!isDefined("puWeight_minus")) _rlm = _rlm.Define("puWeight_minus", puminus, {"Pileup_nTrueInt"});
+
+
+		if (!isDefined("pugenWeight")) _rlm = _rlm.Define("pugenWeight", [this](float x, float y){
+					return (x > 0 ? 1.0 : -1.0) *y;
+				}, {"genWeight", "puWeight"});
+	}
+	_jerctag = jerctag;
+	_jercunctag = jercunctag;
+
+	setupJetMETCorrection(jercfname, _jerctag);
+}
+
 void NanoAODAnalyzerrdframe::setupAnalysis()
 {
 	/* Must sequentially define objects.
 	 *
 	 */
 
-	if (_isData) _jsonOK = readjson();
+
 	// Event weight for data it's always one. For MC, it depends on the sign
 
 	_rlm = _rlm.Define("one", "1.0");
@@ -151,26 +129,7 @@ void NanoAODAnalyzerrdframe::setupAnalysis()
 				return 1.0;
 			}, {} );
 	}
-	else if (!_isData) {
-		if (!isDefined("puWeight")) _rlm = _rlm.Define("puWeight",
-				[this](float x) {
-					return _puweightcalc->getWeight(x);
-				}, {"Pileup_nTrueInt"}
-			);
-		if (!isDefined("puWeight_plus")) _rlm = _rlm.Define("puWeight_plus",
-				[this](float x) {
-					return _puweightcalc_plus->getWeight(x);
-				}, {"Pileup_nTrueInt"}
-			);
-		if (!isDefined("puWeight_minus")) _rlm = _rlm.Define("puWeight_minus",
-				[this](float x) {
-					return _puweightcalc_minus->getWeight(x);
-				}, {"Pileup_nTrueInt"}
-			);
-		if (!isDefined("pugenWeight")) _rlm = _rlm.Define("pugenWeight", [this](float x, float y){
-					return (x > 0 ? 1.0 : -1.0) *y;
-				}, {"genWeight", "puWeight"});
-	}
+
 
 	// Object selection will be defined in sequence.
 	// Selected objects will be stored in new vectors.
@@ -187,55 +146,46 @@ void NanoAODAnalyzerrdframe::setupAnalysis()
 	setupTree();
 }
 
-bool NanoAODAnalyzerrdframe::readjson()
+
+bool NanoAODAnalyzerrdframe::readgoodjson(string goodjsonfname)
 {
 	auto isgoodjsonevent = [this](unsigned int runnumber, unsigned int lumisection)
 		{
-			auto key = std::to_string(runnumber);
+			auto key = std::to_string(runnumber).c_str();
 
 			bool goodeventflag = false;
 
-			if (jsonroot.isMember(key))
+			//if (jsonroot.isMember(key))
+			if (jsonroot.HasMember(key))
 			{
-				Json::Value runlumiblocks = jsonroot[key];
-				for (unsigned int i=0; i<runlumiblocks.size() && !goodeventflag; i++)
+				for (auto &v: jsonroot[key].GetArray()) // loop over arrays with two elements, indicating good lumisections
 				{
-					auto lumirange = runlumiblocks[i];
-					if (lumisection >= lumirange[0].asUInt() && lumisection <= lumirange[1].asUInt()) goodeventflag = true;
+					if (v[0].GetInt()<=lumisection && lumisection <=v[1].GetInt()) goodeventflag = true;
 				}
-				return goodeventflag;
 			}
-			else
-			{
-				//cout << "Run not in json " << runnumber << endl;
-				return false;
-			}
-
+			return goodeventflag;
 		};
 
-	if (_jsonfname != "")
+	if (goodjsonfname != "")
 	{
 		std::ifstream jsoninfile;
-		jsoninfile.open(_jsonfname);
+		jsoninfile.open(goodjsonfname);
 
 		if (jsoninfile.good())
 		{
-			jsoninfile >> jsonroot;
-			/*
-			auto runlumiblocks =  jsonroot["276775"];
-			for (auto i=0; i<runlumiblocks.size(); i++)
-			{
-				auto lumirange = runlumiblocks[i];
-				cout << "lumi range " << lumirange[0] << " " << lumirange[1] << endl;
-			}
-			*/
+			//using rapidjson
+			rapidjson::IStreamWrapper s(jsoninfile);
+			jsonroot.ParseStream(s);
+
+			//using jsoncpp
+			//jsoninfile >> jsonroot;
 			_rlm = _rlm.Define("goodjsonevent", isgoodjsonevent, {"run", "luminosityBlock"}).Filter("goodjsonevent");
 			_jsonOK = true;
 			return true;
 		}
 		else
 		{
-			cout << "Problem reading json file " << _jsonfname << endl;
+			cout << "Problem reading json file " << goodjsonfname << endl;
 			return false;
 		}
 	}
@@ -246,66 +196,14 @@ bool NanoAODAnalyzerrdframe::readjson()
 	}
 }
 
-void NanoAODAnalyzerrdframe::setupJetMETCorrection(string globaltag, string jetalgo)
+void NanoAODAnalyzerrdframe::setupJetMETCorrection(string fname, string jettag)
 {
-	if (globaltag != "")
-	{
-		cout << "Applying new JetMET corrections. GT: "+globaltag+" on jetAlgo: "+jetalgo << endl;
-		string basedirectory = "data/jme/";
-
-		string datamcflag = "";
-		if (_isData) datamcflag = "DATA";
-		else datamcflag = "MC";
-
-		// set file names that contain the parameters for corrections
-		string dbfilenamel1 = basedirectory+globaltag+"_"+datamcflag+"_L1FastJet_"+jetalgo+".txt";
-		string dbfilenamel2 = basedirectory+globaltag+"_"+datamcflag+"_L2Relative_"+jetalgo+".txt";
-		string dbfilenamel3 = basedirectory+globaltag+"_"+datamcflag+"_L3Absolute_"+jetalgo+".txt";
-		string dbfilenamel2l3 = basedirectory+globaltag+"_"+datamcflag+"_L2L3Residual_"+jetalgo+".txt";
-
-		JetCorrectorParameters *L1JetCorrPar = new JetCorrectorParameters(dbfilenamel1);
-        if (!L1JetCorrPar->isValid())
-        {
-            std::cerr << "L1FastJet correction parameters not read" << std::endl;
-            exit(1);
-        }
-		JetCorrectorParameters *L2JetCorrPar = new JetCorrectorParameters(dbfilenamel2);
-        if (!L2JetCorrPar->isValid())
-        {
-            std::cerr << "L2Relative correction parameters not read" << std::endl;
-            exit(1);
-        }
-		JetCorrectorParameters *L3JetCorrPar = new JetCorrectorParameters(dbfilenamel3);
-        if (!L3JetCorrPar->isValid())
-        {
-            std::cerr << "L3Absolute correction parameters not read" << std::endl;
-            exit(1);
-        }
-		JetCorrectorParameters *L2L3JetCorrPar = new JetCorrectorParameters(dbfilenamel2l3);
-        if (!L2L3JetCorrPar->isValid())
-        {
-            std::cerr << "L2L3Residual correction parameters not read" << std::endl;
-            exit(1);
-        }
-
-		// to apply all the corrections, first collect them into a vector
-		std::vector<JetCorrectorParameters> jetc;
-		jetc.push_back(*L1JetCorrPar);
-		jetc.push_back(*L2JetCorrPar);
-		jetc.push_back(*L3JetCorrPar);
-		jetc.push_back(*L2L3JetCorrPar);
-
-		// apply the various corrections
-		_jetCorrector = new FactorizedJetCorrector(jetc);
-
-		// object to calculate uncertainty
-		string dbfilenameunc = basedirectory+globaltag+"_"+datamcflag+"_Uncertainty_"+jetalgo+".txt";
-		_jetCorrectionUncertainty = new JetCorrectionUncertainty(dbfilenameunc);
-	}
-	else
-	{
-		cout << "Not applying new JetMET corrections. Using NanoAOD as is." << endl;
-	}
+	// read from file
+	_correction_jerc = correction::CorrectionSet::from_file(fname);
+	assert(_correction_jerc->validate());
+	// correction type
+	_jetCorrector = _correction_jerc->compound().at(jettag);
+	_jetCorrectionUnc = _correction_jerc->at(_jercunctag);
 }
 
 void NanoAODAnalyzerrdframe::selectElectrons()
@@ -337,6 +235,7 @@ void NanoAODAnalyzerrdframe::selectMuons()
 // and https://github.com/cms-nanoAOD/nanoAOD-tools/blob/master/python/postprocessing/modules/jme/JetRecalibrator.py
 void NanoAODAnalyzerrdframe::applyJetMETCorrections()
 {
+
 	auto appcorrlambdaf = [this](floats jetpts, floats jetetas, floats jetAreas, floats jetrawf, float rho)->floats
 	{
 		floats corrfactors;
@@ -344,11 +243,7 @@ void NanoAODAnalyzerrdframe::applyJetMETCorrections()
 		for (auto i =0; i<jetpts.size(); i++)
 		{
 			float rawjetpt = jetpts[i]*(1.0-jetrawf[i]);
-			_jetCorrector->setJetPt(rawjetpt);
-			_jetCorrector->setJetEta(jetetas[i]);
-			_jetCorrector->setJetA(jetAreas[i]);
-			_jetCorrector->setRho(rho);
-			float corrfactor = _jetCorrector->getCorrection();
+			float corrfactor = _jetCorrector->evaluate({jetAreas[i], jetetas[i], rawjetpt, rho});
 			corrfactors.emplace_back(rawjetpt * corrfactor);
 
 		}
@@ -362,14 +257,8 @@ void NanoAODAnalyzerrdframe::applyJetMETCorrections()
 			for (auto i =0; i<jetpts.size(); i++)
 			{
 				float rawjetpt = jetpts[i]*(1.0-jetrawf[i]);
-				_jetCorrector->setJetPt(rawjetpt);
-				_jetCorrector->setJetEta(jetetas[i]);
-				_jetCorrector->setJetA(jetAreas[i]);
-				_jetCorrector->setRho(rho);
-				float corrfactor = _jetCorrector->getCorrection();
-				_jetCorrectionUncertainty->setJetPt(corrfactor*rawjetpt);
-				_jetCorrectionUncertainty->setJetEta(jetetas[i]);
-				float unc = _jetCorrectionUncertainty->getUncertainty(true);
+				float corrfactor = _jetCorrector->evaluate({jetAreas[i], jetetas[i], rawjetpt, rho});
+				float unc = _jetCorrectionUnc->evaluate({corrfactor*rawjetpt, jetetas[i]});
 				uncertainties.emplace_back(unc);
 
 			}
@@ -419,6 +308,7 @@ void NanoAODAnalyzerrdframe::applyJetMETCorrections()
 		_rlm = _rlm.Define("MET_pt_corr_down", metcorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_down", "Jet_phi"});
 		_rlm = _rlm.Define("MET_phi_corr_down", metphicorrlambdaf, {"MET_pt", "MET_phi", "Jet_pt", "Jet_pt_corr_down", "Jet_phi"});
 	}
+
 }
 
 void NanoAODAnalyzerrdframe::selectJets()
@@ -454,45 +344,30 @@ void NanoAODAnalyzerrdframe::selectJets()
 				.Define("Sel_jetcsvv2", "Jet_btagCSVV2[jetcutsforsf]")
 				.Define("Sel_jetdeepb", "Jet_btagDeepB[jetcutsforsf]");
 
-		// function to calculate event weight for MC events based on CSV algorithm
-		auto btagweightgenerator= [this](floats &pts, floats &etas, ints &hadflav, floats &btags)->float
+		auto btvcentral = [this](floats &pts, floats &etas, ints &hadflav, floats &btags)->floats
 		{
-			double bweight=1.0;
-			BTagEntry::JetFlavor hadfconv;
-			for (auto i=0; i<pts.size(); i++)
-			{
-				if (hadflav[i]==5) hadfconv=BTagEntry::FLAV_B;
-				else if (hadflav[i]==4) hadfconv=BTagEntry::FLAV_C;
-				else hadfconv=BTagEntry::FLAV_UDSG;
-
-				double w = _btagcalibreader.eval_auto_bounds("central", hadfconv, fabs(etas[i]), pts[i], btags[i]);
-				bweight *= w;
-			}
-			return bweight;
+			return ::btvcorrection(_correction_btag1, _btvtype, "central", pts, etas, hadflav, btags); // defined in utility.cpp
 		};
 
-		_rlm = _rlm.Define("btagWeight_CSVV2recalc", btagweightgenerator, {"Sel_jetforsfpt", "Sel_jetforsfeta", "Sel_jetforsfhad", "Sel_jetcsvv2"});
-		_rlm = _rlm.Define("evWeight_CSVV2", "pugenWeight * btagWeight_CSVV2recalc");
+
+		_rlm = _rlm.Define("Sel_jet_deepJet_shape_central", btvcentral, {"Sel_jetforsfpt", "Sel_jetforsfeta", "Sel_jetforsfhad", "Sel_jetdeepb"});
+		//_rlm = _rlm.Define("Sel_jet_deepJet_shape_central",[this](floats &pts, floats &etas, ints &hadflav, floats &btags){return ::btvcorrection(_correction_btag1, "deepJet_shape", "central", pts, etas, hadflav, btags);}
+			//				, {"Sel_jetforsfpt", "Sel_jetforsfeta", "Sel_jetforsfhad", "Sel_jetdeepb"});
 
 		// function to calculate event weight for MC events based on DeepCSV algorithm
-		auto btagweightgenerator2= [this](floats &pts, floats &etas, ints &hadflav, floats &btags)->float
+		auto btagweightgenerator3= [this](floats &pts, floats &etas, ints &hadflav, floats &btags)->float
 		{
 			double bweight=1.0;
-			BTagEntry::JetFlavor hadfconv;
+
 			for (auto i=0; i<pts.size(); i++)
 			{
-				if (hadflav[i]==5) hadfconv=BTagEntry::FLAV_B;
-				else if (hadflav[i]==4) hadfconv=BTagEntry::FLAV_C;
-				else hadfconv=BTagEntry::FLAV_UDSG;
-
-				double w = _btagcalibreader2.eval_auto_bounds("central", hadfconv, fabs(etas[i]), pts[i], btags[i]);
+				double w = _correction_btag1->at(_btvtype)->evaluate({"central", int(hadflav[i]), fabs(float(etas[i])), float(pts[i]), float(btags[i])});
 				bweight *= w;
 			}
 			return bweight;
 		};
-		_rlm = _rlm.Define("btagWeight_DeepCSVBrecalc", btagweightgenerator2, {"Sel_jetforsfpt", "Sel_jetforsfeta", "Sel_jetforsfhad", "Sel_jetdeepb"});
-		_rlm = _rlm.Define("evWeight_DeepCSVB", "pugenWeight * btagWeight_DeepCSVBrecalc");
-		_rlm = _rlm.Define("evWeight", "evWeight_DeepCSVB");
+		_rlm = _rlm.Define("btagWeight_DeepJetrecalc", btagweightgenerator3, {"Sel_jetforsfpt", "Sel_jetforsfeta", "Sel_jetforsfhad", "Sel_jetdeepb"});
+		_rlm = _rlm.Define("evWeight", "pugenWeight * btagWeight_DeepJetrecalc");
 	}
 
 }
@@ -571,8 +446,11 @@ bool NanoAODAnalyzerrdframe::helper_1DHistCreator(std::string hname, std::string
 
 bool NanoAODAnalyzerrdframe::helper_1DHistCreator(std::string hname, std::string title, const int nbins, const double xlow, const double xhi, std::string rdfvar, std::string evWeight, RNode *anode)
 {
+	cout << "1DHistCreator " << hname  << endl;
+
 	RDF1DHist histojets = anode->Histo1D({hname.c_str(), title.c_str(), nbins, xlow, xhi}, rdfvar, evWeight); // Fill with weight given by evWeight
 	_th1dhistos[hname] = histojets;
+	histojets.GetPtr()->Print("all");
 }
 
 
@@ -763,6 +641,18 @@ void NanoAODAnalyzerrdframe::run(bool saveAll, string outtreename)
 			}
 			arnode->Snapshot(outtreename, outname, _varstostorepertree[nodename]);
 		}
+
+		_outrootfile = new TFile(outname.c_str(), "UPDATE");
+		for (auto &h : _th1dhistos)
+		{
+			if (h.second.GetPtr() != nullptr) {
+				h.second.GetPtr()->Print();
+				h.second.GetPtr()->Write();
+			}
+		}
+
+		_outrootfile->Write(0, TObject::kOverwrite);
+		_outrootfile->Close();
 	}
 
 

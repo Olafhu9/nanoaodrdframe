@@ -8,8 +8,8 @@
 #include "SkimEvents.h"
 #include "utility.h"
 
-SkimEvents::SkimEvents(TTree *t, std::string outfilename, std::string jsonfname, string globaltag, int nthreads)
-:NanoAODAnalyzerrdframe(t, outfilename, jsonfname, globaltag, nthreads)
+SkimEvents::SkimEvents(TTree *t, std::string outfilename)
+:NanoAODAnalyzerrdframe(t, outfilename)
 {
 
 }
@@ -20,8 +20,9 @@ void SkimEvents::defineCuts()
 	// Cuts to be applied in order
 	// These will be passed to Filter method of RDF
 	// check for good json event is defined earlier
-	//addCuts("HLT_PFHT450_SixJet40_BTagCSV_p056 || HLT_PFHT400_SixJet30_DoubleBTagCSV_p056 || HLT_PFHT900", "0"); // 2016 triggers
-	addCuts("HLT_PFHT300PT30_QuadPFJet_75_60_45_40_TriplePFBTagCSV_3p0 || HLT_PFHT380_SixPFJet32_DoublePFBTagCSV_2p2 ||HLT_PFHT430_SixPFJet40_PFBTagCSV_1p5 ||  HLT_PFHT380_SixPFJet32_DoublePFBTagDeepCSV_2p2 || HLT_PFHT1050", "0");
+	addCuts("HLT_PFHT450_SixJet40_BTagCSV_p056 || HLT_PFHT400_SixJet30_DoubleBTagCSV_p056 || HLT_PFHT900", "0"); // 2016 triggers
+	//addCuts("HLT_PFHT300PT30_QuadPFJet_75_60_45_40_TriplePFBTagCSV_3p0 || HLT_PFHT380_SixPFJet32_DoublePFBTagCSV_2p2 || HLT_PFHT430_SixPFJet40_PFBTagCSV_1p5 ||  HLT_PFHT380_SixPFJet32_DoublePFBTagDeepCSV_2p2 || HLT_PFHT1050", "0");
+	//addCuts("HLT_PFHT300PT30_QuadPFJet_75_60_45_40_TriplePFBTagCSV_3p0 || HLT_PFHT380_SixPFJet32_DoublePFBTagCSV_2p2", "0");
 }
 
 void SkimEvents::defineMoreVars()
@@ -40,6 +41,7 @@ void SkimEvents::defineMoreVars()
 
 	addVartoStore("nJet");
 	addVartoStore("Jet_.*");
+	addVartoStore("Sel_.*");
 	addVartoStore("nFatJet");
 	addVartoStore("FatJet_.*");
 	addVartoStore("MET.*");

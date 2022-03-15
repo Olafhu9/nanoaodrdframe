@@ -8,8 +8,8 @@
 #include "FourtopAnalyzer.h"
 #include "utility.h"
 
-FourtopAnalyzer::FourtopAnalyzer(TTree *t, std::string outfilename, std::string jsonfname, string globaltag, int nthreads)
-:NanoAODAnalyzerrdframe(t, outfilename, jsonfname, globaltag, nthreads)
+FourtopAnalyzer::FourtopAnalyzer(TTree *t, std::string outfilename)
+:NanoAODAnalyzerrdframe(t, outfilename)
 {
 
 }

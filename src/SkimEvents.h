@@ -14,7 +14,7 @@
 class SkimEvents: public NanoAODAnalyzerrdframe
 {
 	public:
-		SkimEvents(TTree *t, std::string outfilename, std::string jsonfname="", string globaltag="", int nthreads=1);
+		SkimEvents(TTree *t, std::string outfilename);
 		void defineCuts();
 		void defineMoreVars(); // define higher-level variables from
 		void bookHists();

@@ -11,6 +11,7 @@
 #include "ROOT/RDataFrame.hxx"
 #include "ROOT/RVec.hxx"
 #include "Math/Vector4D.h"
+#include "correction.h"
 #include <string>
 
 using floats =  ROOT::VecOps::RVec<float>;
@@ -56,5 +57,9 @@ floats weightv(floats &x, float evWeight);
 floats sphericity(FourVectorVec &p);
 
 double foxwolframmoment(int l, FourVectorVec &p, int minj=0, int maxj=-1);
+
+floats btvcorrection(std::unique_ptr<correction::CorrectionSet> &cset, std::string name, std::string syst, floats &pts, floats &etas, ints &hadflav, floats &btags);
+
+float pucorrection(std::unique_ptr<correction::CorrectionSet> &cset, std::string name, std::string syst, float ntruepileup);
 
 #endif /* UTILITY_H_ */

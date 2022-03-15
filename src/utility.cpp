@@ -8,8 +8,11 @@
 #include "TMatrixDSym.h"
 #include "TVectorT.h"
 #include "Math/SpecFuncMathMore.h"
+#include "correction.h"
 
 // Utility function to generate fourvector objects for thigs that pass selections
+
+using namespace std;
 
 FourVectorVec gen4vec(floats &pt, floats &eta, floats &phi, floats &mass)
 {
@@ -90,4 +93,20 @@ double foxwolframmoment(int l, FourVectorVec &p, int minj, int maxj)
 	return answer;
 }
 
+floats btvcorrection(std::unique_ptr<correction::CorrectionSet> &cset, std::string type, std::string sys, floats &pts, floats &etas, ints &hadflav, floats &btags)
+{
+	floats scalefactors;
+	auto nvecs = pts.size();
+	scalefactors.reserve(nvecs);
+	for (auto i=0; i<nvecs; i++)
+	{
+		float sfi = cset->at(type)->evaluate({sys, int(hadflav[i]), fabs(float(etas[i])), float(pts[i]), float(btags[i])});
+		scalefactors.emplace_back(sfi);
+	}
+	return scalefactors;
+}
 
+float pucorrection(std::unique_ptr<correction::CorrectionSet> &cset, std::string name, std::string syst, float ntruepileup)
+{
+	return float(cset->at(name)->evaluate({ntruepileup, syst.c_str()}));
+}

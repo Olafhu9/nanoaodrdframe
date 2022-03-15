@@ -2,47 +2,50 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Sep 14 11:01:46 2018
+Modified Feb 26 2022
 
 @author: Suyong Choi (Department of Physics, Korea University suyong@korea.ac.kr)
 
 This script applies nanoaod processing to all the files in the input
  directory and its subdirectory recursively, copying directory structure to the outputdirectory
 
+The main class that steers the processing is Nanoaodprocessor. For processing a single ROOT file,
+it calls function_calling_PostProcessor, which executes processonefile.py as a separate process.
+(The reason this is done rather than doing everything inside Nanoaodprocessor is that the
+memory usage grows with time when each file is processed inside Nanoaodprocessor, probably a problem
+in memory allocation and clean up in Python)
+
 """
 import sys
 import os
 import re
-import string
 import subprocess
 
 
-from importlib import import_module
 from multiprocessing import Process
 import cppyy
 import ROOT
 
+# read in configuration settings from jobconfig.py
+from jobconfig import config, procflags
 
-def function_calling_PostProcessor(outdir, rootfileshere, outtreename, intreeename, json, saveallbranches, globaltag):
+def function_calling_PostProcessor(outdir, rootfileshere):
     for afile in rootfileshere:
         rootfname = re.split('\/', afile)[-1]
         withoutext = re.split('\.root', rootfname)[0]
         outfname = outdir + '/' + withoutext + '_analyzed.root'
-        subprocess.call(["./processonefile.py", "--json=%s"%json, "--savealbranches=%s"%saveallbranches, "--globaltag=%s"%globaltag, afile, outfname, intreeename, outtreename])
+        subprocess.run(["./processonefile.py", afile, outfname])
     pass
 
 
 class Nanoaodprocessor:
-    def __init__(self, outdir, indir, outtree, intree, json, split, skipold, recursive, saveallbranches, globaltag):
+    def __init__(self, indir, outdir):
         self.outdir = outdir
         self.indir = indir
-        self.outtreename = outtree
-        self.intreeename = intree
-        self.json = json
-        self.split = split
-        self.skipold = skipold
-        self.recursive = recursive
-        self.saveallbranches = saveallbranches
-        self.globaltag = globaltag
+        self.split = procflags['split']
+        self.skipold = procflags['skipold']
+        self.recursive = procflags['recursive']
+        self.saveallbranches = procflags['saveallbranches']
         
         # check whether input directory exists
         if not os.path.exists(self.indir):
@@ -120,7 +123,7 @@ class Nanoaodprocessor:
                         filesforjob = rootfileshere[int(i*nfileperjob):int((i+1)*nfileperjob)]
                     else:
                         filesforjob = rootfileshere[int(i*nfileperjob):]
-                    p = Process(target=function_calling_PostProcessor, args=(outputdirectory, filesforjob, self.outtreename, self.intreeename, self.json, self.saveallbranches, self.globaltag)) # positional arguments go into kwargs
+                    p = Process(target=function_calling_PostProcessor, args=(outputdirectory, filesforjob)) # positional arguments go into kwargs
                     p.start()
                     ap.append(p)
                 for proc in ap:
@@ -132,7 +135,7 @@ class Nanoaodprocessor:
                     rootfname = re.split('\/', afile)[-1]
                     withoutext = re.split('\.root', rootfname)[0]
                     outfname = outputdirectory +'/'+ withoutext + '_analyzed.root'
-                    subprocess.call(["./processonefile.py", "--json=%s"%self.json, "--savealbranches=%s"%self.saveallbranches, "--globaltag=%s"%self.globaltag, afile, outfname, self.intreeename, self.outtreename])
+                    subprocess.run(["./processonefile.py", afile, outfname])
 
                     # the following works, but memory usage of this process grows with time.. Don't know how to solve it.
                     """
@@ -155,7 +158,7 @@ class Nanoaodprocessor:
             for indir, outdir in zip(subdirs, outsubdirs):
                 self._processROOTfiles(indir, outdir)
     
-def Nanoaodprocessor_singledir(outputroot, indir, outtree, intree, json, split, recursive, saveallbranches, globaltag):
+def Nanoaodprocessor_singledir(indir, outputroot):
     """Runs nanoaod analyzer over ROOT files in indir (but doesn't search recursively)
     and run outputs into a signel ROOT file.
     
@@ -172,7 +175,7 @@ def Nanoaodprocessor_singledir(outputroot, indir, outtree, intree, json, split, 
     fullnamelist =[]
     rootfilestoprocess = []
     print("collecting root files in "+indir)
-    if not recursive:
+    if not procflags['recursive']:
         flist = os.listdir(indir)
         for fname in flist:
             fullname = os.path.join(indir, fname)
@@ -188,10 +191,15 @@ def Nanoaodprocessor_singledir(outputroot, indir, outtree, intree, json, split, 
             rootfilestoprocess.append(fname)
     print("files to process")
     print(rootfilestoprocess)
-    t = ROOT.TChain(intree)
+    intreename = config['intreename']
+    outtreename = config['outtreename']
+    saveallbranches = procflags['saveallbranches']
+    t = ROOT.TChain(intreename)
     for afile in rootfilestoprocess:
         t.Add(afile)
-    aproc = ROOT.FourtopAnalyzer(t, outputroot, json, globaltag, split)
+    aproc = ROOT.FourtopAnalyzer(t, outputroot)
+    aproc.setupCorrections(config['goodjson'], config['pileupfname'], config['pileuptag']\
+        , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'])
     aproc.setupAnalysis()
     aproc.run(saveallbranches, outtree)
 
@@ -220,35 +228,24 @@ def Nanoaodprocessor_singledir(outputroot, indir, outtree, intree, json, split, 
     pass
 
 if __name__=='__main__':
-    
-    from optparse import OptionParser
+    from argparse import ArgumentParser
     # inputDir and lower directories contain input NanoAOD files
     # outputDir is where the outputs will be created
-    parser = OptionParser(usage="%prog [options] inputDir outputDir")
-    parser.add_option("-J", "--json",  dest="json", type="string", default="", help="Select events using this JSON file, meaningful only for data")
-    parser.add_option("--split", dest="split", type=int, default=1, help="How many jobs to split into")
-    parser.add_option("--skipold", dest="skipold", action="store_true", default=False, help="Skip existing root files")
-    parser.add_option("--recursive", dest="recursive", action="store_true", default=True, help="Process files in the subdirectories recursively")
-    parser.add_option("--allinone", dest="allinone", action="store_true", default=False, help="Process all files and output a single root file. You must make sure MC and Data are not mixed together.")
-    parser.add_option("--saveallbranches", dest="saveallbranches", action="store_true", default=False, help="Save all branches. False by default")
-    parser.add_option("--globaltag", dest="globaltag", type="string", default="", help="Global tag to be used in JetMET corrections")
-    (options, args) = parser.parse_args()
+    parser = ArgumentParser(usage="%prog inputDir outputDir")
+    parser.add_argument("indir")
+    parser.add_argument("outdir")
+    args = parser.parse_args()
 
-    if len(args) < 1 :
-        parser.print_help()
-        sys.exit(1)
-
-    indir = args[0]
-    outdir = args[1]
+    indir = args.indir
+    outdir = args.outdir
 
     # load compiled C++ library into ROOT/python
     cppyy.load_reflection_info("libnanoadrdframe.so")
+    cppyy.load_reflection_info("libcorrectionlib.so")
 
-    intree = "outputTree"
-    outtree = "outputTree2"
 
-    if not options.allinone:
-        n=Nanoaodprocessor(outdir, indir, outtree, intree, options.json, options.split, options.skipold, options.recursive, options.saveallbranches, options.globaltag)
+    if not procflags['allinone']:
+        n=Nanoaodprocessor(indir, outdir)
         n.process()
     else:
-        Nanoaodprocessor_singledir(outdir, indir, outtree, intree, options.json,  options.split, options.recursive, options.saveallbranches, options.globaltag) # although it says outdir, it should really be a output ROOT file name
+        Nanoaodprocessor_singledir (indir, outdir) # although it says outdir, it should really be a output ROOT file name
