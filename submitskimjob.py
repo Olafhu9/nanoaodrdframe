@@ -16,7 +16,6 @@ def submit(jobconfmod):
         os.system('./skimnanoaod.py '+ indir + ' ' + outdir + ' ' + jobconfmod  + ' > ' + outfile + ' 2>&1 &') # submit background jobs
     pass
 
-
 if __name__=="__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser(usage="%prog jobconfigmodule", description='submits skim jobs in background where the job '\
@@ -24,6 +23,9 @@ if __name__=="__main__":
     parser.add_argument("jobconfmod")
     args = parser.parse_args()
 
-    jobconfmod = args.jobconfmod
+    jobconfmod_fname = args.jobconfmod
+    # strip .py from the filename
+    jobconfmod = jobconfmod_fname.replace('.py', '')
+
     submit(jobconfmod)
     pass

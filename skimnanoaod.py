@@ -18,7 +18,6 @@ from multiprocessing import Process
 import cppyy
 import ROOT
 
-from importlib import import_module
 
 def function_calling_PostProcessor(outdir, rootfileshere, jobconfmod):
     for afile in rootfileshere:
@@ -174,12 +173,14 @@ def Nanoaodprocessor_singledir(indir, outputroot, procflags, config):
         t.Add(afile)
     aproc = ROOT.SkimEvents(t, outputroot)
     aproc.setupCorrections(config['goodjson'], config['pileupfname'], config['pileuptag']\
-        , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'])
+        , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'], config['jercunctag'])
+    aproc.setupObjects()
     aproc.setupAnalysis()
     aproc.run(saveallbranches, outtreename)
     pass
 
 if __name__=='__main__':
+    from importlib import import_module
     from argparse import ArgumentParser
     # inputDir and lower directories contain input NanoAOD files
     # outputDir is where the outputs will be created
@@ -192,6 +193,11 @@ if __name__=='__main__':
     indir = args.indir
     outdir = args.outdir
     jobconfmod = args.jobconfmod
+
+    # check whether input directory exists
+    if not os.path.exists(indir):
+        print ('Path '+indir+' does not exist. Stopping')
+        exit(1)
 
     # load compiled C++ library into ROOT/python
     cppyy.load_reflection_info("libnanoadrdframe.so")

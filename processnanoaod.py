@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/bin/python
 # -*- coding: utf-8 -*-
 """
 Created on Mon Sep 14 11:01:46 2018
@@ -16,7 +16,6 @@ memory usage grows with time when each file is processed inside Nanoaodprocessor
 in memory allocation and clean up in Python)
 
 """
-import sys
 import os
 import re
 import subprocess
@@ -26,22 +25,21 @@ from multiprocessing import Process
 import cppyy
 import ROOT
 
-# read in configuration settings from jobconfig.py
-from jobconfig import config, procflags
 
-def function_calling_PostProcessor(outdir, rootfileshere):
+def function_calling_PostProcessor(outdir, rootfileshere, jobconfmod):
     for afile in rootfileshere:
         rootfname = re.split('\/', afile)[-1]
         withoutext = re.split('\.root', rootfname)[0]
         outfname = outdir + '/' + withoutext + '_analyzed.root'
-        subprocess.run(["./processonefile.py", afile, outfname])
+        subprocess.run(["./processonefile.py", afile, outfname, jobconfmod])
     pass
 
 
 class Nanoaodprocessor:
-    def __init__(self, indir, outdir):
+    def __init__(self, indir, outdir, jobconfmod, procflags, config):
         self.outdir = outdir
         self.indir = indir
+        self.jobconfmod = jobconfmod
         self.split = procflags['split']
         self.skipold = procflags['skipold']
         self.recursive = procflags['recursive']
@@ -72,7 +70,7 @@ class Nanoaodprocessor:
         # pick root files but not those that match  _analyzed.root 
         for fname in flist:
             fullname = os.path.join(inputdirectory, fname)
-            if re.match('.*\.root', fname) and not re.match('.*_analyzed\.root', fname) and os.path.isfile(fullname): # if it has .root file extension
+            if re.match('.*\.root', fname) and os.path.isfile(fullname): # if it has .root file extension
                 rootfileshere.append(fullname) 
             elif os.path.isdir(fullname):  # if it's a directory name
                 subdirs.append(fullname)
@@ -123,7 +121,7 @@ class Nanoaodprocessor:
                         filesforjob = rootfileshere[int(i*nfileperjob):int((i+1)*nfileperjob)]
                     else:
                         filesforjob = rootfileshere[int(i*nfileperjob):]
-                    p = Process(target=function_calling_PostProcessor, args=(outputdirectory, filesforjob)) # positional arguments go into kwargs
+                    p = Process(target=function_calling_PostProcessor, args=(outputdirectory, filesforjob, self.jobconfmod)) # positional arguments go into kwargs
                     p.start()
                     ap.append(p)
                 for proc in ap:
@@ -135,7 +133,7 @@ class Nanoaodprocessor:
                     rootfname = re.split('\/', afile)[-1]
                     withoutext = re.split('\.root', rootfname)[0]
                     outfname = outputdirectory +'/'+ withoutext + '_analyzed.root'
-                    subprocess.run(["./processonefile.py", afile, outfname])
+                    subprocess.run(["./processonefile.py", afile, outfname, self.jobconfmod])
 
                     # the following works, but memory usage of this process grows with time.. Don't know how to solve it.
                     """
@@ -158,7 +156,7 @@ class Nanoaodprocessor:
             for indir, outdir in zip(subdirs, outsubdirs):
                 self._processROOTfiles(indir, outdir)
     
-def Nanoaodprocessor_singledir(indir, outputroot):
+def Nanoaodprocessor_singledir(indir, outputroot, procflags, config):
     """Runs nanoaod analyzer over ROOT files in indir (but doesn't search recursively)
     and run outputs into a signel ROOT file.
     
@@ -198,10 +196,20 @@ def Nanoaodprocessor_singledir(indir, outputroot):
     for afile in rootfilestoprocess:
         t.Add(afile)
     aproc = ROOT.FourtopAnalyzer(t, outputroot)
-    aproc.setupCorrections(config['goodjson'], config['pileupfname'], config['pileuptag']\
-        , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'])
+    
+    #
+    #if your input root file already has good json, various corrections applied with
+    #object clean up, you should skip the corrections step
+    #
+    skipcorrections = True
+    if not skipcorrections:
+        aproc.setupCorrections(config['goodjson'], config['pileupfname'], config['pileuptag']\
+            , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'], config['jercunctag'])
+        aproc.setupObjects()
+    else:
+        print("Skipping corrections step")
     aproc.setupAnalysis()
-    aproc.run(saveallbranches, outtree)
+    aproc.run(saveallbranches, outtreename)
 
     # process input rootfiles to sum up all the counterhistograms
     counterhistogramsum = None
@@ -220,7 +228,7 @@ def Nanoaodprocessor_singledir(indir, outputroot):
         print("Updating with counter histogram")
         outf = ROOT.TFile(outputroot, "UPDATE")
         counterhistogramsum.Write()
-        outf.Write(0, ROOT.TObject.kOverwrite)
+        outf.Write('', ROOT.TObject.kOverwrite)
         outf.Close()
     else:
         print("counter histogram not found@")
@@ -228,24 +236,37 @@ def Nanoaodprocessor_singledir(indir, outputroot):
     pass
 
 if __name__=='__main__':
+    from importlib import import_module
     from argparse import ArgumentParser
     # inputDir and lower directories contain input NanoAOD files
     # outputDir is where the outputs will be created
-    parser = ArgumentParser(usage="%prog inputDir outputDir")
+    parser = ArgumentParser(usage="%prog inputDir outputDir jobconfmod")
     parser.add_argument("indir")
     parser.add_argument("outdir")
+    parser.add_argument("jobconfmod")
     args = parser.parse_args()
 
     indir = args.indir
     outdir = args.outdir
+    jobconfmod = args.jobconfmod
 
+    # check whether input directory exists
+    if not os.path.exists(indir):
+        print ('Path '+indir+' does not exist. Stopping')
+        exit(1)
+    
     # load compiled C++ library into ROOT/python
-    cppyy.load_reflection_info("libnanoadrdframe.so")
     cppyy.load_reflection_info("libcorrectionlib.so")
+    cppyy.load_reflection_info("libMathMore.so")
+    cppyy.load_reflection_info("libnanoadrdframe.so")
 
+    # read in configurations from job configuration python module
+    mod = import_module(jobconfmod)
+    procflags = getattr(mod, 'procflags')
+    config = getattr(mod, 'config')
 
     if not procflags['allinone']:
-        n=Nanoaodprocessor(indir, outdir)
+        n=Nanoaodprocessor(indir, outdir, jobconfmod, procflags, config)
         n.process()
     else:
-        Nanoaodprocessor_singledir (indir, outdir) # although it says outdir, it should really be a output ROOT file name
+        Nanoaodprocessor_singledir (indir, outdir, procflags, config) # although it says outdir, it should really be a output ROOT file name

@@ -21,7 +21,8 @@
 #include <string>
 #include <vector>
 #include <map>
-#include "rapidjson/document.h"
+//#include "rapidjson/document.h"
+#include "nlohmann/json.hpp"
 
 #include "utility.h" // floats, etc are defined here
 #include "RNodeTree.h"
@@ -32,6 +33,7 @@ using namespace std;
 
 class TH1D;
 
+using json = nlohmann::json;
 
 class NanoAODAnalyzerrdframe {
 	using RDF1DHist = RResultPtr<TH1D>;
@@ -41,6 +43,7 @@ public:
 	virtual ~NanoAODAnalyzerrdframe();
 
 	void setupCorrections(string goodjsonfname, string pufname, string putag, string btvfname, string btvtype, string jercfname, string jerctag, string jercunctag);
+	void setupObjects();
 	void setupAnalysis();
 
 	// object selectors
@@ -105,7 +108,9 @@ private:
 
 	// using rapidjson
 	//for applying golden json to data
-	rapidjson::Document jsonroot;
+	//rapidjson::Document jsonroot;
+
+	json jsonroot;
 
 	// pile up weights
 	std::unique_ptr<correction::CorrectionSet> _correction_pu;

@@ -23,8 +23,8 @@ int main(void) {
 	//FourtopAnalyzer nanoaodrdf(&c1, "testout.root", "data/Cert_271036-284044_13TeV_23Sep2016ReReco_Collisions16_JSON.txt");
 
 	TChain c1("Events");
-	//c1.Add("testinputdata/data/JetHT_2017C_DA05CA1A-3265-EE47-84F9-10CB09D22BDA.root"); //data
-	c1.Add("testinputdata/MC/ttJets-2017MC-A258F579-5EC0-D840-95D7-4327595FC3DE.root"); // MC
+	c1.Add("testinputdata/data/JetHT_2017C_DA05CA1A-3265-EE47-84F9-10CB09D22BDA.root"); //data
+	//c1.Add("testinputdata/MC/2017/ttJets-2017MC-A258F579-5EC0-D840-95D7-4327595FC3DE.root"); // MC
 	SkimEvents nanoaodrdf(&c1, "testout.root");
 
 	string goodjsonfname = "data/Cert_294927-306462_13TeV_EOY2017ReReco_Collisions17_JSON.txt";

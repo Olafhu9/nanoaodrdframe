@@ -33,18 +33,16 @@ void SkimEvents::defineMoreVars()
 	addVartoStore("run");
 	addVartoStore("luminosityBlock");
 	addVartoStore("event");
-	addVartoStore("evWeight.*");
-	addVartoStore("puWeight.*");
 	addVartoStore("gen.*");
 	addVartoStore("Pileup.*");
-	addVartoStore("btagWeight.*");
 
 	addVartoStore("nJet");
 	addVartoStore("Jet_.*");
-	addVartoStore("Sel_.*");
+	addVartoStore("MET.*");
+
+/*
 	addVartoStore("nFatJet");
 	addVartoStore("FatJet_.*");
-	addVartoStore("MET.*");
 	addVartoStore("Puppi.*");
 	addVartoStore("nElectron");
 	addVartoStore("Electron_.*");
@@ -52,11 +50,31 @@ void SkimEvents::defineMoreVars()
 	addVartoStore("Muon_.*");
 	addVartoStore("nSubJet");
 	addVartoStore("SubJet.*");
-	addVartoStore("PV*");
+	*/
+	addVartoStore("PV.*");
 	addVartoStore("nOtherPV");
 	addVartoStore("OtherPV_z");
 	addVartoStore("HLT_PFHT.*");
 	addVartoStore("Flag.*");
+
+	// corrected and cleaned up objects
+	addVartoStore("evWeight.*");
+	addVartoStore("btagWeight.*");
+	addVartoStore("puWeight.*");
+	addVartoStore("nelepass");
+	addVartoStore("ele4vects");
+	addVartoStore("nmuonpass");
+	addVartoStore("muon4vects");
+	addVartoStore("Sel_.*");
+	addVartoStore("ncleanjets.*");
+	addVartoStore("Sel2_jet.*");
+	addVartoStore("cleanjet4vecs");
+	addVartoStore("ncleanbjets.*");
+	addVartoStore("Sel2_bjet.*");
+	addVartoStore("cleanbjet4vecs.*");
+	addVartoStore("nfatjetspass");
+	addVartoStore("Sel_fatjet.*");
+
 }
 
 void SkimEvents::bookHists()

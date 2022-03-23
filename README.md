@@ -18,8 +18,8 @@ writing out trees. In some sense you can concentrate more on
 thinking about data analysis.
 
 - Draw back is that you have to think of a new way of doing old things.
-This could getting used to. Alos complicated algorithms may not
-be so easy to implement with RDataFrame
+This could take some getting used to. Also complicated algorithms may not
+be so easy to implement with RDataFrame alone.
 
 - Purely data frame concept is not ideal for HEP data since
 we have to treat real data and simulated data differently.
@@ -33,54 +33,61 @@ with object oriented concept for this purpose.
 II. Code
 
 - The code consists of a main class NanoAODAnalyzerrdframe. 
-There is one.h header file and one .cpp source file for it.
+There is one .h header file and one .cpp source file for it.
 The class has several methods:
-    - Object definitions (selectElectrons, selectMuons, ...)
+    - OBject corrections, event weights
+    - Object selection definitions (selectElectrons, selectMuons, ...)
     - Additional derived variables definition (defineMoreVars)
     - Histogram definitions (bookHists)
     - Selections (defineCuts)
     - Plus some utility methods/functions (gen4vec, readjson, removeOverlaps, helper_1DHistCreator, createHists)
 
-- Users should modify: object definitions, define additional variables, histogram definitions, selections.
-
+- Objects where corrections are applied, the leaf names are changed. It cannot be the same as the input tree leaf name, otherwise, it will crash.
+- Users should modify: object selection definitions, define additional variables, histogram definitions, selections.
 - To use the class, you need to pass a pointer to TChain object, output root file name and a JSON file.
   If there is "genWeight" branch in the ROOT Tree then the input is assumed to be MC, otherwise data.
   Look at nanoaoddataframe.cpp to find how to use within C++ 
 
+- SkimEvents.cpp subclasses from NanoAODAnalyzerrdframe and shows how skimming could be done.
+- FourtopAnalyzer.cpp  subclasses from NanoAODAnalyzerrdframe shows how analysis could be done on skimmed files.  
+
 - Compiling
-  Need ROOT 6.17 or later (available in /master-data/common_tools/ROOT617 in our local  master server) then,
+  - if using standalone: 
+    - ROOT >= 6.24
+    - correctionlib >=2.0.0 (https://github.com/cms-nanoAOD/correctionlib)
+    - rapidjson (https://github.com/Tencent/rapidjson)
+    - nlohman/json (https://github.com/nlohmann/json)
+  - if CMSSW is available: the package doesn't depend on any CMSSW libraries, but some of the dependent libraries are available, so this
+    makes it easier to compile.
+    - CMSSW >= 12.2.x
+    - ROOT >= 6.24 : CMSSW 12.2 has ROOT 6.22 but there are run time errors when using this. So you must setup ROOT 6.24.
 
   > make
 
   this will compile and create a libnanoaodrdframe.so shared library that can be loaded in a ROOT session or macro:
   gSystem->Load("libnanoadrdframe.so");
-
   or within pyROOT (look in processnanoaod.py).
 
-III. Running over large dataset
+III. Running
 
-processnanoaod.py script can automatically run over all ROOT files in an input directory.
+> submitskimjob.py jobconfigskim.py
 
-Usage: processnanoaod.py [options] inputDir outputDir
+All the options are to be set in the jobconfigskim.py. It contains 3 python directories,
+one for configurations for various POG corrections, golden JSON, input and output root tree names, etc.
+The second dictionary contains processing options, to split processing into
+multiple jobs, produce one output file per input file, skip files already processed, 
+whether to dive into subdirectories recursively and process the files there.
+The third dictionary contains input directory where your input files are, output directory, and text output file 
+for any print out or error messages.
 
-Options:
-  -h, --help            show this help message and exit
-  -J JSON, --json=JSON  Select events using this JSON file, meaningful only
-                        for data
-  --split=SPLIT         How many jobs to split into
-  --skipold             Skip existing root files
-  --recursive           Process files in the subdirectories recursively
-  --allinone            Process all files and output a single root file. You
-                        must make sure MC and Data are not mixed together.
-  --saveallbranches     Option to  save all branches. Default is to save only select branches
-  --globaltag           Global tag information, which is used for JetMET corrections.
-                        If omitted, then no corrections are applied.
+As is, one output file will be produced per input file with the name "analyzed" added to
+the input filename. So, we know which files are processed. The output directory 
+structure will be created to match the input directory structure.
+The skim job is where the corrections are applied.
 
-  
-By default, it will go into subdirectories recursively and process ROOT files. 
-It will make the output directory to have the same  the directory structure as the input directory.
-It will create one output file per one input file, so there is one-to-one correspondence.
---split option will allow multithreading you to use multiple CPUs to process the files. (e.g. --split=5)
---skipold option will let you skip files that were analyzed, by matching files that have _analyzed in the file names.
---recursive mode is on by default. If you don't want that, --recursive=False.
---allinone option will let you get a single output root file for all the files in the inputDir. In this mode, --skipold doesn't work
+> submitanalysisjob.py jobconfiganalysis.py job
+
+Analyzes the skimmed files for analysis. Since the corrections were already applied
+from previous step, no additional corrections are applied. However, if the user chooses to simply
+select on the triggers for the skimming stage, one would have to apply the corrections
+here. User should modify processnanoaod.py if one wishes to do so (search for skipcorrections in that file). 

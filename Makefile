@@ -1,11 +1,11 @@
 rootlibs:=$(shell root-config --libs)
 rootflags:=$(shell root-config --cflags)
 
-correctionlib_inc = /home/suyong/work/src/correctionlib/include
-correctionlib_lib = /home/suyong/work/src/correctionlib/lib
+#correctionlib_inc = /home/suyong/work/src/correctionlib/include
+#correctionlib_lib = /home/suyong/work/src/correctionlib/lib
 
-CORRECTION_INCPATH:=$(shell correction config --incdir)
-CORRECTION_LIBPATH:=$(shell correction config --libdir)
+correctionlib_inc:=$(shell correction config --incdir)
+correctionlib_lib:=$(shell correction config --libdir)
 
 SOFLAGS       = -shared
 

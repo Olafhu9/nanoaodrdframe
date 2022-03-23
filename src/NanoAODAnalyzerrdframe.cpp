@@ -111,15 +111,22 @@ void NanoAODAnalyzerrdframe::setupCorrections(string goodjsonfname, string pufna
 	_jercunctag = jercunctag;
 
 	setupJetMETCorrection(jercfname, _jerctag);
+	applyJetMETCorrections();
+}
+
+void NanoAODAnalyzerrdframe::setupObjects()
+{
+	// Object selection will be defined in sequence.
+	// Selected objects will be stored in new vectors.
+	selectElectrons();
+	selectMuons();
+	selectJets();
+	removeOverlaps();
+	selectFatJets();
 }
 
 void NanoAODAnalyzerrdframe::setupAnalysis()
 {
-	/* Must sequentially define objects.
-	 *
-	 */
-
-
 	// Event weight for data it's always one. For MC, it depends on the sign
 
 	_rlm = _rlm.Define("one", "1.0");
@@ -130,15 +137,6 @@ void NanoAODAnalyzerrdframe::setupAnalysis()
 			}, {} );
 	}
 
-
-	// Object selection will be defined in sequence.
-	// Selected objects will be stored in new vectors.
-	selectElectrons();
-	selectMuons();
-	applyJetMETCorrections();
-	selectJets();
-	removeOverlaps();
-	selectFatJets();
 	defineMoreVars();
 	defineCuts();
 	bookHists();
@@ -155,7 +153,26 @@ bool NanoAODAnalyzerrdframe::readgoodjson(string goodjsonfname)
 
 			bool goodeventflag = false;
 
-			//if (jsonroot.isMember(key))
+
+			if (jsonroot.contains(key))
+			{
+				for (auto &v: jsonroot[key])
+				{
+					if (v[0]<=lumisection && lumisection <=v[1]) goodeventflag = true;
+				}
+			}
+			/*
+			if (jsonroot.isMember(key))
+			{
+				Json::Value runlumiblocks = jsonroot[key];
+				for (unsigned int i=0; i<runlumiblocks.size() && !goodeventflag; i++)
+				{
+					auto lumirange = runlumiblocks[i];
+					if (lumisection >= lumirange[0].asUInt() && lumisection <= lumirange[1].asUInt()) goodeventflag = true;
+				}
+			}
+			*/
+			/*
 			if (jsonroot.HasMember(key))
 			{
 				for (auto &v: jsonroot[key].GetArray()) // loop over arrays with two elements, indicating good lumisections
@@ -163,6 +180,7 @@ bool NanoAODAnalyzerrdframe::readgoodjson(string goodjsonfname)
 					if (v[0].GetInt()<=lumisection && lumisection <=v[1].GetInt()) goodeventflag = true;
 				}
 			}
+			*/
 			return goodeventflag;
 		};
 
@@ -174,11 +192,11 @@ bool NanoAODAnalyzerrdframe::readgoodjson(string goodjsonfname)
 		if (jsoninfile.good())
 		{
 			//using rapidjson
-			rapidjson::IStreamWrapper s(jsoninfile);
-			jsonroot.ParseStream(s);
+			//rapidjson::IStreamWrapper s(jsoninfile);
+			//jsonroot.ParseStream(s);
 
 			//using jsoncpp
-			//jsoninfile >> jsonroot;
+			jsoninfile >> jsonroot;
 			_rlm = _rlm.Define("goodjsonevent", isgoodjsonevent, {"run", "luminosityBlock"}).Filter("goodjsonevent");
 			_jsonOK = true;
 			return true;
@@ -414,11 +432,11 @@ void NanoAODAnalyzerrdframe::removeOverlaps()
 
 
 	_rlm = _rlm.Define("btagcuts2", "Sel2_jetbtag>0.8")
-			.Define("Sel2_bjetpt", "Sel2_jetpt[btagcuts]")
-			.Define("Sel2_bjeteta", "Sel2_jeteta[btagcuts]")
-			.Define("Sel2_bjetphi", "Sel2_jetphi[btagcuts]")
-			.Define("Sel2_bjetmass", "Sel2_jetmass[btagcuts]")
-			.Define("ncleanbjetspass", "int(Sel_bjetpt.size())")
+			.Define("Sel2_bjetpt", "Sel2_jetpt[btagcuts2]")
+			.Define("Sel2_bjeteta", "Sel2_jeteta[btagcuts2]")
+			.Define("Sel2_bjetphi", "Sel2_jetphi[btagcuts2]")
+			.Define("Sel2_bjetmass", "Sel2_jetmass[btagcuts2]")
+			.Define("ncleanbjetspass", "int(Sel2_bjetpt.size())")
 			.Define("Sel2_bjetHT", "Sum(Sel2_bjetpt)")
 			.Define("cleanbjet4vecs", ::gen4vec, {"Sel2_bjetpt", "Sel2_bjeteta", "Sel2_bjetphi", "Sel2_bjetmass"});
 
@@ -450,7 +468,8 @@ bool NanoAODAnalyzerrdframe::helper_1DHistCreator(std::string hname, std::string
 
 	RDF1DHist histojets = anode->Histo1D({hname.c_str(), title.c_str(), nbins, xlow, xhi}, rdfvar, evWeight); // Fill with weight given by evWeight
 	_th1dhistos[hname] = histojets;
-	histojets.GetPtr()->Print("all");
+	//histojets.GetPtr()->Print("all");
+	return true;
 }
 
 

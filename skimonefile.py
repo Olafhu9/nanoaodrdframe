@@ -46,6 +46,7 @@ if __name__=='__main__':
     aproc.setupCorrections(config['goodjson'], config['pileupfname'], config['pileuptag']\
         , config['btvfname'], config['btvtype'], config['jercfname'], config['jerctag'], config['jercunctag'])
     # prepare for processing
+    aproc.setupObjects()
     aproc.setupAnalysis()
     aproc.run(saveallbranches, outtreename)
     
