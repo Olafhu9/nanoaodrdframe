@@ -18,8 +18,6 @@
 #include <regex>
 #include "ROOT/RDFHelpers.hxx"
 
-#include "rapidjson/istreamwrapper.h"
-
 
 using namespace std;
 
