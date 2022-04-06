@@ -22,7 +22,7 @@
 #include <vector>
 #include <map>
 //#include "rapidjson/document.h"
-#include "nlohmann/json.hpp"
+#include "json.hpp"
 
 #include "utility.h" // floats, etc are defined here
 #include "RNodeTree.h"
