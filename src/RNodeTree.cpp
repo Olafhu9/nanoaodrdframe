@@ -33,7 +33,7 @@ RNodeTree *RNodeTree::addDaughter(RNode *rn, string asidx)
 	RNodeTree *rnt = NULL;
 	if (parentnode != NULL)
 	{
-		if (parentnode->daughters.size() == std::stoi(asidx.substr(asidx.length()-1, 1)))
+		if ( int(parentnode->daughters.size()) == std::stoi(asidx.substr(asidx.length()-1, 1)))
 		rnt = new RNodeTree(rn);
 		rnt->setParent(parentnode);
 		rnt->_idx = asidx;
